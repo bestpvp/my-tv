@@ -33,7 +33,7 @@ jobs:
           keyPassword: ${{ secrets.ALIAS_PASSWORD }}
         env:
           # override default build-tools version (29.0.3) -- optional
-          BUILD_TOOLS_VERSION: "34.0.0"
+          BUILD_TOOLS_VERSION: "29.0.3"
 
       - name: Create Release
         id: create_release
