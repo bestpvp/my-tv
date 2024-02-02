@@ -2,7 +2,6 @@ package com.lizongying.mytv
 
 import android.os.Bundle
 import android.os.Handler
-import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -23,25 +22,28 @@ class InfoFragment : Fragment() {
         savedInstanceState: Bundle?
     ): View {
         _binding = InfoBinding.inflate(inflater, container, false)
+        _binding!!.root.visibility = View.GONE
         (activity as MainActivity).fragmentReady()
         return binding.root
     }
 
-    override fun onResume() {
-        super.onResume()
-
-        // Use a Handler to delay the fragment transaction
-        handler.postDelayed(removeRunnable, delay)
-    }
-
     fun show(tvViewModel: TVViewModel) {
         binding.textView.text = tvViewModel.title.value
-        if (tvViewModel.title.value == "CCTV8K 超高清") {
-            Glide.with(this)
+
+        when (tvViewModel.title.value) {
+            "CCTV8K 超高清" -> Glide.with(this)
                 .load(R.drawable.cctv8k)
                 .into(binding.infoLogo)
-        } else {
-            Glide.with(this)
+
+            "天津卫视" -> Glide.with(this)
+                .load(R.drawable.tianjin)
+                .into(binding.infoLogo)
+
+            "新疆卫视" -> Glide.with(this)
+                .load(R.drawable.xinjiang)
+                .into(binding.infoLogo)
+
+            else -> Glide.with(this)
                 .load(tvViewModel.logo.value)
                 .into(binding.infoLogo)
         }
@@ -56,10 +58,13 @@ class InfoFragment : Fragment() {
         handler.postDelayed(removeRunnable, delay)
     }
 
+    override fun onResume() {
+        super.onResume()
+        handler.postDelayed(removeRunnable, delay)
+    }
+
     override fun onPause() {
         super.onPause()
-        Log.i(TAG, "onPause")
-        // Cancel the delayed task when the fragment is paused
         handler.removeCallbacks(removeRunnable)
     }
 

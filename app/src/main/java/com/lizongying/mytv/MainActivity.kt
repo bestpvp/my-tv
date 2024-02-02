@@ -1,11 +1,11 @@
 package com.lizongying.mytv
 
-import android.app.AlertDialog
+import android.content.Context
+import android.content.SharedPreferences
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.content.pm.Signature
 import android.content.pm.SigningInfo
-import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -16,11 +16,7 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
 import android.view.WindowManager
-import android.widget.ImageView
-import android.widget.LinearLayout
-import android.widget.TextView
 import android.widget.Toast
-import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import com.lizongying.mytv.models.TVViewModel
 import java.security.MessageDigest
@@ -31,6 +27,8 @@ class MainActivity : FragmentActivity() {
     var playerFragment = PlayerFragment()
     private val mainFragment = MainFragment()
     private val infoFragment = InfoFragment()
+    private val channelFragment = ChannelFragment()
+    private lateinit var settingFragment: SettingFragment
 
     private var doubleBackToExitPressedOnce = false
 
@@ -38,6 +36,13 @@ class MainActivity : FragmentActivity() {
 
     private val handler = Handler()
     private val delay: Long = 4000
+    private val delayHideHelp: Long = 10000
+
+    lateinit var sharedPref: SharedPreferences
+    private var channelReversal = false
+    private var channelNum = true
+
+    private var versionName = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -51,22 +56,49 @@ class MainActivity : FragmentActivity() {
             supportFragmentManager.beginTransaction()
                 .add(R.id.main_browse_fragment, playerFragment)
                 .add(R.id.main_browse_fragment, infoFragment)
+                .add(R.id.main_browse_fragment, channelFragment)
                 .add(R.id.main_browse_fragment, mainFragment)
-                .hide(infoFragment)
+                .hide(mainFragment)
                 .commit()
-            mainFragment.view?.requestFocus()
         }
         gestureDetector = GestureDetector(this, GestureListener())
+
+        sharedPref = getPreferences(Context.MODE_PRIVATE)
+        channelReversal = sharedPref.getBoolean(CHANNEL_REVERSAL, channelReversal)
+        channelNum = sharedPref.getBoolean(CHANNEL_NUM, channelNum)
+
+        versionName = getPackageInfo().versionName
+        settingFragment = SettingFragment(versionName, channelReversal, channelNum)
     }
 
     fun showInfoFragment(tvViewModel: TVViewModel) {
         infoFragment.show(tvViewModel)
+        if (channelNum) {
+            channelFragment.show(tvViewModel)
+        }
+    }
+
+    private fun showChannel(channel: String) {
+        if (!mainFragment.isHidden) {
+            return
+        }
+
+        if (settingFragment.isVisible) {
+            return
+        }
+
+        if (channelNum) {
+            channelFragment.show(channel)
+        }
     }
 
     fun play(tvViewModel: TVViewModel) {
-        Log.i(TAG, "play: ${tvViewModel.getTV()}")
         playerFragment.play(tvViewModel)
         mainFragment.view?.requestFocus()
+    }
+
+    fun play(itemPosition: Int) {
+        mainFragment.play(itemPosition)
     }
 
     fun prev() {
@@ -78,11 +110,11 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun prevSource() {
-        mainFragment.prevSource()
+//        mainFragment.prevSource()
     }
 
     private fun nextSource() {
-        mainFragment.nextSource()
+//        mainFragment.nextSource()
     }
 
     fun switchMainFragment() {
@@ -104,7 +136,9 @@ class MainActivity : FragmentActivity() {
     }
 
     private val hideRunnable = Runnable {
-        supportFragmentManager.beginTransaction().hide(mainFragment).commit()
+        if (!mainFragment.isHidden) {
+            supportFragmentManager.beginTransaction().hide(mainFragment).commit()
+        }
     }
 
     private fun mainFragmentIsHidden(): Boolean {
@@ -171,59 +205,170 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    fun saveChannelReversal(channelReversal: Boolean) {
+        with(sharedPref.edit()) {
+            putBoolean(CHANNEL_REVERSAL, channelReversal)
+            apply()
+        }
+        this.channelReversal = channelReversal
+    }
+
+    fun saveChannelNum(channelNum: Boolean) {
+        with(sharedPref.edit()) {
+            putBoolean(CHANNEL_NUM, channelNum)
+            apply()
+        }
+        this.channelNum = channelNum
+    }
+
     private fun showHelp() {
-        val versionName = getPackageInfo().versionName
+        if (!mainFragment.isHidden) {
+            return
+        }
 
-        val textView = TextView(this)
-        textView.text =
-            "当前版本: $versionName\n获取最新: https://github.com/lizongying/my-tv/releases/"
-        textView.setBackgroundColor(0xFF263238.toInt())
-        textView.setPadding(20, 50, 20, 20)
+        Log.i(TAG, "settingFragment ${settingFragment.isVisible}")
+        if (!settingFragment.isVisible) {
+            settingFragment.show(supportFragmentManager, "setting")
+            handler.removeCallbacks(hideHelp)
+            handler.postDelayed(hideHelp, delayHideHelp)
+        } else {
+            handler.removeCallbacks(hideHelp)
+            settingFragment.dismiss()
+        }
+    }
 
-        val imageView = ImageView(this)
-        val drawable = ContextCompat.getDrawable(this, R.drawable.appreciate)
-        imageView.setImageDrawable(drawable)
-        imageView.setBackgroundColor(Color.WHITE)
+    private val hideHelp = Runnable {
+        if (settingFragment.isVisible) {
+            settingFragment.dismiss()
+        }
+    }
 
-        val linearLayout = LinearLayout(this)
-        linearLayout.orientation = LinearLayout.VERTICAL
-        linearLayout.addView(textView)
-        linearLayout.addView(imageView)
+    private fun channelUp() {
+        if (mainFragment.isHidden) {
+            if (channelReversal) {
+                next()
+                return
+            }
+            prev()
+        } else {
+//                    if (mainFragment.selectedPosition == 0) {
+//                        mainFragment.setSelectedPosition(
+//                            mainFragment.tvListViewModel.maxNum.size - 1,
+//                            false
+//                        )
+//                    }
+        }
+    }
 
-        val layoutParams = LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT
-        )
-        imageView.layoutParams = layoutParams
-        textView.layoutParams = layoutParams
+    private fun channelDown() {
+        if (mainFragment.isHidden) {
+            if (channelReversal) {
+                prev()
+                return
+            }
+            next()
+        } else {
+//                    if (mainFragment.selectedPosition == mainFragment.tvListViewModel.maxNum.size - 1) {
+////                        mainFragment.setSelectedPosition(0, false)
+//                        hideMainFragment()
+//                        return false
+//                    }
+        }
+    }
 
-        val builder: AlertDialog.Builder = AlertDialog.Builder(this)
-        builder
-            .setView(linearLayout)
+    private fun back() {
+        if (!mainFragmentIsHidden()) {
+            hideMainFragment()
+            return
+        }
 
-        val dialog: AlertDialog = builder.create()
-        dialog.show()
+        if (doubleBackToExitPressedOnce) {
+            super.onBackPressed()
+            return
+        }
+
+        doubleBackToExitPressedOnce = true
+        Toast.makeText(this, "再按一次退出", Toast.LENGTH_SHORT).show()
+
+        Handler(Looper.getMainLooper()).postDelayed({
+            doubleBackToExitPressedOnce = false
+        }, 2000)
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         when (keyCode) {
+            KeyEvent.KEYCODE_0 -> {
+                showChannel("0")
+                return true
+            }
+
+            KeyEvent.KEYCODE_1 -> {
+                showChannel("1")
+                return true
+            }
+
+            KeyEvent.KEYCODE_2 -> {
+                showChannel("2")
+                return true
+            }
+
+            KeyEvent.KEYCODE_3 -> {
+                showChannel("3")
+                return true
+            }
+
+            KeyEvent.KEYCODE_4 -> {
+                showChannel("4")
+                return true
+            }
+
+            KeyEvent.KEYCODE_5 -> {
+                showChannel("5")
+                return true
+            }
+
+            KeyEvent.KEYCODE_6 -> {
+                showChannel("6")
+                return true
+            }
+
+            KeyEvent.KEYCODE_7 -> {
+                showChannel("7")
+                return true
+            }
+
+            KeyEvent.KEYCODE_8 -> {
+                showChannel("8")
+                return true
+            }
+
+            KeyEvent.KEYCODE_9 -> {
+                showChannel("9")
+                return true
+            }
+
+            KeyEvent.KEYCODE_ESCAPE -> {
+                back()
+                return true
+            }
+
             KeyEvent.KEYCODE_BACK -> {
-                if (!mainFragmentIsHidden()) {
-                    hideMainFragment()
-                    return true
-                }
+                back()
+                return true
+            }
 
-                if (doubleBackToExitPressedOnce) {
-                    super.onBackPressed()
-                    return true
-                }
+            KeyEvent.KEYCODE_BOOKMARK -> {
+                showHelp()
+                return true
+            }
 
-                this.doubleBackToExitPressedOnce = true
-                Toast.makeText(this, "再按一次退出", Toast.LENGTH_SHORT).show()
+            KeyEvent.KEYCODE_UNKNOWN -> {
+                showHelp()
+                return true
+            }
 
-                Handler(Looper.getMainLooper()).postDelayed({
-                    doubleBackToExitPressedOnce = false
-                }, 2000)
+            KeyEvent.KEYCODE_HELP -> {
+                showHelp()
                 return true
             }
 
@@ -237,34 +382,28 @@ class MainActivity : FragmentActivity() {
                 return true
             }
 
+            KeyEvent.KEYCODE_ENTER -> {
+                switchMainFragment()
+            }
+
             KeyEvent.KEYCODE_DPAD_CENTER -> {
-                Log.i(TAG, "KEYCODE_DPAD_CENTER")
                 switchMainFragment()
             }
 
             KeyEvent.KEYCODE_DPAD_UP -> {
-                if (mainFragment.isHidden) {
-                    prev()
-                } else {
-//                    if (mainFragment.selectedPosition == 0) {
-//                        mainFragment.setSelectedPosition(
-//                            mainFragment.tvListViewModel.maxNum.size - 1,
-//                            false
-//                        )
-//                    }
-                }
+                channelUp()
+            }
+
+            KeyEvent.KEYCODE_CHANNEL_UP -> {
+                channelUp()
             }
 
             KeyEvent.KEYCODE_DPAD_DOWN -> {
-                if (mainFragment.isHidden) {
-                    next()
-                } else {
-//                    if (mainFragment.selectedPosition == mainFragment.tvListViewModel.maxNum.size - 1) {
-////                        mainFragment.setSelectedPosition(0, false)
-//                        hideMainFragment()
-//                        return false
-//                    }
-                }
+                channelDown()
+            }
+
+            KeyEvent.KEYCODE_CHANNEL_DOWN -> {
+                channelDown()
             }
 
             KeyEvent.KEYCODE_DPAD_LEFT -> {
@@ -337,7 +476,7 @@ class MainActivity : FragmentActivity() {
 
     private fun hashSignature(signature: Signature): String {
         return try {
-            val md = MessageDigest.getInstance("SHA-256")
+            val md = MessageDigest.getInstance("MD5")
             md.update(signature.toByteArray())
             val digest = md.digest()
             digest.let { it -> it.joinToString("") { "%02x".format(it) } }
@@ -349,5 +488,7 @@ class MainActivity : FragmentActivity() {
 
     companion object {
         private const val TAG = "MainActivity"
+        private const val CHANNEL_REVERSAL = "channel_reversal"
+        private const val CHANNEL_NUM = "channel_num"
     }
 }
