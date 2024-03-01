@@ -41,11 +41,15 @@ class MainFragment : BrowseSupportFragment() {
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var mUpdateProgramRunnable: UpdateProgramRunnable
 
-    private var ready = 0
-
     override fun onCreate(savedInstanceState: Bundle?) {
+        Log.i(TAG, "onCreate")
         super.onCreate(savedInstanceState)
         headersState = HEADERS_DISABLED
+    }
+
+    override fun onStart() {
+        Log.i(TAG, "onStart")
+        super.onStart()
     }
 
     override fun onActivityCreated(savedInstanceState: Bundle?) {
@@ -83,6 +87,7 @@ class MainFragment : BrowseSupportFragment() {
             tvViewModel.change.observe(viewLifecycleOwner) { _ ->
                 if (tvViewModel.change.value != null) {
                     val title = tvViewModel.title.value
+                    Log.i(TAG, "switch $title")
                     if (tvViewModel.pid.value != "") {
                         Log.i(TAG, "request $title")
                         lifecycleScope.launch(Dispatchers.IO) {
@@ -107,7 +112,7 @@ class MainFragment : BrowseSupportFragment() {
             }
         }
 
-        fragmentReady()
+        (activity as MainActivity).fragmentReady()
     }
 
     fun toLastPosition() {
@@ -217,7 +222,7 @@ class MainFragment : BrowseSupportFragment() {
         ) {
             if (item is TVViewModel) {
                 tvListViewModel.setItemPositionCurrent(item.id.value!!)
-                (activity as MainActivity).keepRunnable()
+                (activity as MainActivity).mainActive()
             }
         }
     }
@@ -239,12 +244,8 @@ class MainFragment : BrowseSupportFragment() {
     }
 
     fun fragmentReady() {
-        ready++
-        Log.i(TAG, "ready $ready")
-        if (ready == 4) {
 //            request.fetchPage()
-            tvListViewModel.getTVViewModel(itemPosition)?.changed()
-        }
+        tvListViewModel.getTVViewModel(itemPosition)?.changed()
     }
 
     fun play(itemPosition: Int) {
@@ -298,7 +299,7 @@ class MainFragment : BrowseSupportFragment() {
 
     inner class UpdateProgramRunnable : Runnable {
         override fun run() {
-            tvListViewModel.tvListViewModel.value?.filter { it.programId.value != null }
+            tvListViewModel.tvListViewModel.value?.filter { it.programId.value != null && it.programId.value != "" }
                 ?.forEach { tvViewModel ->
                     updateProgram(
                         tvViewModel
@@ -308,6 +309,11 @@ class MainFragment : BrowseSupportFragment() {
         }
     }
 
+    override fun onResume() {
+        Log.i(TAG, "onResume")
+        super.onResume()
+    }
+
     override fun onStop() {
         Log.i(TAG, "onStop")
         super.onStop()
@@ -315,18 +321,15 @@ class MainFragment : BrowseSupportFragment() {
             putInt(POSITION, itemPosition)
             apply()
         }
-        Log.i(TAG, "POSITION saved")
+        Log.i(TAG, "$POSITION $itemPosition saved")
     }
 
     override fun onDestroy() {
         Log.i(TAG, "onDestroy")
         super.onDestroy()
-        handler.removeCallbacks(mUpdateProgramRunnable)
-    }
-
-    override fun onResume() {
-        super.onResume()
-        view?.post { view?.requestFocus() }
+        if (::mUpdateProgramRunnable.isInitialized) {
+            handler.removeCallbacks(mUpdateProgramRunnable)
+        }
     }
 
     companion object {

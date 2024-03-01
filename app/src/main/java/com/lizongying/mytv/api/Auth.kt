@@ -6,24 +6,21 @@ import okhttp3.RequestBody
 import okio.BufferedSink
 import java.io.IOException
 
-data class LiveInfo(
+data class Auth(
     val code: Int,
     val msg: String,
-    val data: LiveInfoData,
+    val data: AuthData,
 )
 
-data class LiveInfoData(
-    val extended_param: String,
-    val chanll: String,
-    val playurl: String,
-    val errinfo: String,
+data class AuthData(
+    val token: String,
 )
 
-data class LiveInfoRequest(
+data class AuthRequest(
     var data: String,
 ) : RequestBody() {
     override fun contentType(): MediaType? {
-        return MediaType.parse("application/json;charset=UTF-8")
+        return MediaType.parse("application/x-www-form-urlencoded;charset=UTF-8")
     }
 
     override fun writeTo(sink: BufferedSink) {
@@ -35,6 +32,6 @@ data class LiveInfoRequest(
     }
 
     companion object {
-        private const val TAG = "LiveInfoRequest"
+        private const val TAG = "AuthRequest"
     }
 }

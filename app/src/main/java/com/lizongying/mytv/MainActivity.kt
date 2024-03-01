@@ -18,16 +18,22 @@ import android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.lifecycleScope
 import com.lizongying.mytv.models.TVViewModel
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import java.security.MessageDigest
 
 
 class MainActivity : FragmentActivity() {
 
-    var playerFragment = PlayerFragment()
-    private val mainFragment = MainFragment()
-    private val infoFragment = InfoFragment()
-    private val channelFragment = ChannelFragment()
+    private var ready = 0
+    private var playerFragment = PlayerFragment()
+    private var mainFragment = MainFragment()
+    private var infoFragment = InfoFragment()
+    private var channelFragment = ChannelFragment()
     private lateinit var settingFragment: SettingFragment
 
     private var doubleBackToExitPressedOnce = false
@@ -35,16 +41,26 @@ class MainActivity : FragmentActivity() {
     private lateinit var gestureDetector: GestureDetector
 
     private val handler = Handler()
-    private val delay: Long = 4000
-    private val delayHideHelp: Long = 10000
+    private val delayHideMain: Long = 5000
+    private val delayHideSetting: Long = 10000
 
     lateinit var sharedPref: SharedPreferences
     private var channelReversal = false
     private var channelNum = true
+    private var bootStartup = true
 
-    private var versionName = ""
+    init {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val utilsJob = async(start = CoroutineStart.LAZY) { Utils.init() }
+
+            utilsJob.start()
+
+            utilsJob.await()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        Log.i(TAG, "onCreate")
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
@@ -66,9 +82,17 @@ class MainActivity : FragmentActivity() {
         sharedPref = getPreferences(Context.MODE_PRIVATE)
         channelReversal = sharedPref.getBoolean(CHANNEL_REVERSAL, channelReversal)
         channelNum = sharedPref.getBoolean(CHANNEL_NUM, channelNum)
+        bootStartup = sharedPref.getBoolean(BOOT_STARTUP, bootStartup)
 
-        versionName = getPackageInfo().versionName
-        settingFragment = SettingFragment(versionName, channelReversal, channelNum)
+        val packageInfo = getPackageInfo()
+        val versionName = packageInfo.versionName
+        val versionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            packageInfo.longVersionCode
+        } else {
+            packageInfo.versionCode.toLong()
+        }
+        settingFragment =
+            SettingFragment(versionName, versionCode, channelReversal, channelNum, bootStartup)
     }
 
     fun showInfoFragment(tvViewModel: TVViewModel) {
@@ -122,7 +146,7 @@ class MainActivity : FragmentActivity() {
 
         if (mainFragment.isHidden) {
             transaction.show(mainFragment)
-            keepRunnable()
+            mainActive()
         } else {
             transaction.hide(mainFragment)
         }
@@ -130,12 +154,17 @@ class MainActivity : FragmentActivity() {
         transaction.commit()
     }
 
-    fun keepRunnable() {
-        handler.removeCallbacks(hideRunnable)
-        handler.postDelayed(hideRunnable, delay)
+    fun mainActive() {
+        handler.removeCallbacks(hideMain)
+        handler.postDelayed(hideMain, delayHideMain)
     }
 
-    private val hideRunnable = Runnable {
+    fun settingActive() {
+        handler.removeCallbacks(hideSetting)
+        handler.postDelayed(hideSetting, delayHideSetting)
+    }
+
+    private val hideMain = Runnable {
         if (!mainFragment.isHidden) {
             supportFragmentManager.beginTransaction().hide(mainFragment).commit()
         }
@@ -154,7 +183,11 @@ class MainActivity : FragmentActivity() {
     }
 
     fun fragmentReady() {
-        mainFragment.fragmentReady()
+        ready++
+        Log.i(TAG, "ready $ready")
+        if (ready == 4) {
+            mainFragment.fragmentReady()
+        }
     }
 
     override fun onTouchEvent(event: MotionEvent?): Boolean {
@@ -173,7 +206,7 @@ class MainActivity : FragmentActivity() {
         }
 
         override fun onFling(
-            e1: MotionEvent,
+            e1: MotionEvent?,
             e2: MotionEvent,
             velocityX: Float,
             velocityY: Float
@@ -221,7 +254,15 @@ class MainActivity : FragmentActivity() {
         this.channelNum = channelNum
     }
 
-    private fun showHelp() {
+    fun saveBootStartup(bootStartup: Boolean) {
+        with(sharedPref.edit()) {
+            putBoolean(BOOT_STARTUP, bootStartup)
+            apply()
+        }
+        this.bootStartup = bootStartup
+    }
+
+    private fun showSetting() {
         if (!mainFragment.isHidden) {
             return
         }
@@ -229,15 +270,14 @@ class MainActivity : FragmentActivity() {
         Log.i(TAG, "settingFragment ${settingFragment.isVisible}")
         if (!settingFragment.isVisible) {
             settingFragment.show(supportFragmentManager, "setting")
-            handler.removeCallbacks(hideHelp)
-            handler.postDelayed(hideHelp, delayHideHelp)
+            settingActive()
         } else {
-            handler.removeCallbacks(hideHelp)
+            handler.removeCallbacks(hideSetting)
             settingFragment.dismiss()
         }
     }
 
-    private val hideHelp = Runnable {
+    private val hideSetting = Runnable {
         if (settingFragment.isVisible) {
             settingFragment.dismiss()
         }
@@ -358,27 +398,27 @@ class MainActivity : FragmentActivity() {
             }
 
             KeyEvent.KEYCODE_BOOKMARK -> {
-                showHelp()
+                showSetting()
                 return true
             }
 
             KeyEvent.KEYCODE_UNKNOWN -> {
-                showHelp()
+                showSetting()
                 return true
             }
 
             KeyEvent.KEYCODE_HELP -> {
-                showHelp()
+                showSetting()
                 return true
             }
 
             KeyEvent.KEYCODE_SETTINGS -> {
-                showHelp()
+                showSetting()
                 return true
             }
 
             KeyEvent.KEYCODE_MENU -> {
-                showHelp()
+                showSetting()
                 return true
             }
 
@@ -486,9 +526,29 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    override fun onStart() {
+        Log.i(TAG, "onStart")
+        super.onStart()
+    }
+
+    override fun onResume() {
+        Log.i(TAG, "onResume")
+        super.onResume()
+        if (!mainFragment.isHidden) {
+            handler.postDelayed(hideMain, delayHideMain)
+        }
+    }
+
+    override fun onPause() {
+        Log.i(TAG, "onPause")
+        super.onPause()
+        handler.removeCallbacks(hideMain)
+    }
+
     companion object {
         private const val TAG = "MainActivity"
         private const val CHANNEL_REVERSAL = "channel_reversal"
         private const val CHANNEL_NUM = "channel_num"
+        const val BOOT_STARTUP = "boot_startup"
     }
 }
