@@ -2,6 +2,7 @@ package com.lizongying.mytv
 
 import android.os.Bundle
 import android.os.Handler
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -23,38 +24,23 @@ class InfoFragment : Fragment() {
     ): View {
         _binding = InfoBinding.inflate(inflater, container, false)
         _binding!!.root.visibility = View.GONE
-        (activity as MainActivity).fragmentReady()
+        (activity as MainActivity).fragmentReady("InfoFragment")
         return binding.root
     }
 
     fun show(tvViewModel: TVViewModel) {
-        binding.textView.text = tvViewModel.title.value
+        binding.textView.text = tvViewModel.getTV().title
 
-        when (tvViewModel.title.value) {
-            "CCTV8K 超高清" -> Glide.with(this)
-                .load(R.drawable.cctv8k)
-                .into(binding.infoLogo)
+        Glide.with(this)
+            .load(tvViewModel.getTV().logo)
+            .into(binding.infoLogo)
 
-            "天津卫视" -> Glide.with(this)
-                .load(R.drawable.tianjin)
-                .into(binding.infoLogo)
-
-            "新疆卫视" -> Glide.with(this)
-                .load(R.drawable.xinjiang)
-                .into(binding.infoLogo)
-
-            "兵团卫视" -> Glide.with(this)
-                .load(R.drawable.bingtuan)
-                .into(binding.infoLogo)
-
-            else -> Glide.with(this)
-                .load(tvViewModel.logo.value)
-                .into(binding.infoLogo)
-        }
-
-        val program = tvViewModel.getProgramOne()
-        if (program != null) {
-            binding.infoDesc.text = program.name
+        Log.i(TAG, "${tvViewModel.getTV().title} ${tvViewModel.epg.value}")
+        val epg = tvViewModel.epg.value?.filter { it.beginTime < Utils.getDateTimestamp() }
+        if (!epg.isNullOrEmpty()) {
+            binding.infoDesc.text = epg.last().title
+        } else {
+            binding.infoDesc.text = ""
         }
 
         handler.removeCallbacks(removeRunnable)

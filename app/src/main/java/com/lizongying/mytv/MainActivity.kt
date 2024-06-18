@@ -1,11 +1,8 @@
 package com.lizongying.mytv
 
 import android.content.Context
-import android.content.SharedPreferences
-import android.content.pm.PackageInfo
-import android.content.pm.PackageManager
-import android.content.pm.Signature
-import android.content.pm.SigningInfo
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -14,6 +11,7 @@ import android.util.Log
 import android.view.GestureDetector
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.View
 import android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
 import android.view.WindowManager
 import android.widget.Toast
@@ -24,30 +22,26 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
-import java.security.MessageDigest
 
 
-class MainActivity : FragmentActivity() {
+class MainActivity : FragmentActivity(), Request.RequestListener {
 
     private var ready = 0
-    private var playerFragment = PlayerFragment()
-    private var mainFragment = MainFragment()
-    private var infoFragment = InfoFragment()
-    private var channelFragment = ChannelFragment()
-    private lateinit var settingFragment: SettingFragment
+    private val playerFragment = PlayerFragment()
+    private val mainFragment = MainFragment()
+    private val infoFragment = InfoFragment()
+    private val channelFragment = ChannelFragment()
+    private var timeFragment = TimeFragment()
+    private val settingFragment = SettingFragment()
+    private val errorFragment = ErrorFragment()
 
     private var doubleBackToExitPressedOnce = false
 
     private lateinit var gestureDetector: GestureDetector
 
     private val handler = Handler()
-    private val delayHideMain: Long = 5000
+    private val delayHideMain: Long = 10000
     private val delayHideSetting: Long = 10000
-
-    lateinit var sharedPref: SharedPreferences
-    private var channelReversal = false
-    private var channelNum = true
-    private var bootStartup = true
 
     init {
         lifecycleScope.launch(Dispatchers.IO) {
@@ -55,14 +49,17 @@ class MainActivity : FragmentActivity() {
 
             utilsJob.start()
 
-            utilsJob.await()
+//            utilsJob.await()
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         Log.i(TAG, "onCreate")
         super.onCreate(savedInstanceState)
+
         setContentView(R.layout.activity_main)
+
+        Request.setRequestListener(this)
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
@@ -71,6 +68,7 @@ class MainActivity : FragmentActivity() {
         if (savedInstanceState == null) {
             supportFragmentManager.beginTransaction()
                 .add(R.id.main_browse_fragment, playerFragment)
+                .add(R.id.main_browse_fragment, timeFragment)
                 .add(R.id.main_browse_fragment, infoFragment)
                 .add(R.id.main_browse_fragment, channelFragment)
                 .add(R.id.main_browse_fragment, mainFragment)
@@ -79,25 +77,36 @@ class MainActivity : FragmentActivity() {
         }
         gestureDetector = GestureDetector(this, GestureListener())
 
-        sharedPref = getPreferences(Context.MODE_PRIVATE)
-        channelReversal = sharedPref.getBoolean(CHANNEL_REVERSAL, channelReversal)
-        channelNum = sharedPref.getBoolean(CHANNEL_NUM, channelNum)
-        bootStartup = sharedPref.getBoolean(BOOT_STARTUP, bootStartup)
-
-        val packageInfo = getPackageInfo()
-        val versionName = packageInfo.versionName
-        val versionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            packageInfo.longVersionCode
-        } else {
-            packageInfo.versionCode.toLong()
+        errorFragment.buttonClickListener = View.OnClickListener {
+            supportFragmentManager.beginTransaction()
+                .remove(errorFragment)
+                .commit()
         }
-        settingFragment =
-            SettingFragment(versionName, versionCode, channelReversal, channelNum, bootStartup)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            val connectivityManager =
+                getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            connectivityManager.registerDefaultNetworkCallback(object :
+                ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    super.onAvailable(network)
+                    Log.i(TAG, "net ${Build.VERSION.SDK_INT}")
+                    if (this@MainActivity.isNetworkConnected) {
+                        Log.i(TAG, "net isNetworkConnected")
+                        ready++
+                    }
+                }
+            })
+        } else {
+            Log.i(TAG, "net ${Build.VERSION.SDK_INT}")
+            ready++
+        }
+
     }
 
     fun showInfoFragment(tvViewModel: TVViewModel) {
         infoFragment.show(tvViewModel)
-        if (channelNum) {
+        if (SP.channelNum) {
             channelFragment.show(tvViewModel)
         }
     }
@@ -111,7 +120,7 @@ class MainActivity : FragmentActivity() {
             return
         }
 
-        if (channelNum) {
+        if (SP.channelNum) {
             channelFragment.show(channel)
         }
     }
@@ -159,9 +168,19 @@ class MainActivity : FragmentActivity() {
         handler.postDelayed(hideMain, delayHideMain)
     }
 
-    fun settingActive() {
+    fun settingDelayHide() {
         handler.removeCallbacks(hideSetting)
         handler.postDelayed(hideSetting, delayHideSetting)
+        showTime()
+    }
+
+    fun settingHideNow() {
+        handler.removeCallbacks(hideSetting)
+        handler.postDelayed(hideSetting, 0)
+    }
+
+    fun settingNeverHide() {
+        handler.removeCallbacks(hideSetting)
     }
 
     private val hideMain = Runnable {
@@ -182,11 +201,29 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    fun fragmentReady() {
+    fun fragmentReady(tag: String) {
         ready++
-        Log.i(TAG, "ready $ready")
-        if (ready == 4) {
+        Log.i(TAG, "ready $tag $ready ")
+        if (ready == 6) {
             mainFragment.fragmentReady()
+            showTime()
+        }
+    }
+
+    private fun showTime() {
+        Log.i(TAG, "showTime ${SP.time}")
+        if (SP.time) {
+            timeFragment.show()
+        } else {
+            timeFragment.hide()
+        }
+    }
+
+    fun isPlaying() {
+        if (errorFragment.isVisible) {
+            supportFragmentManager.beginTransaction()
+                .remove(errorFragment)
+                .commit()
         }
     }
 
@@ -200,8 +237,12 @@ class MainActivity : FragmentActivity() {
     private inner class GestureListener : GestureDetector.SimpleOnGestureListener() {
 
         override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-            Log.i(TAG, "onSingleTapConfirmed")
             switchMainFragment()
+            return true
+        }
+
+        override fun onDoubleTap(e: MotionEvent): Boolean {
+            showSetting()
             return true
         }
 
@@ -238,30 +279,6 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    fun saveChannelReversal(channelReversal: Boolean) {
-        with(sharedPref.edit()) {
-            putBoolean(CHANNEL_REVERSAL, channelReversal)
-            apply()
-        }
-        this.channelReversal = channelReversal
-    }
-
-    fun saveChannelNum(channelNum: Boolean) {
-        with(sharedPref.edit()) {
-            putBoolean(CHANNEL_NUM, channelNum)
-            apply()
-        }
-        this.channelNum = channelNum
-    }
-
-    fun saveBootStartup(bootStartup: Boolean) {
-        with(sharedPref.edit()) {
-            putBoolean(BOOT_STARTUP, bootStartup)
-            apply()
-        }
-        this.bootStartup = bootStartup
-    }
-
     private fun showSetting() {
         if (!mainFragment.isHidden) {
             return
@@ -270,7 +287,7 @@ class MainActivity : FragmentActivity() {
         Log.i(TAG, "settingFragment ${settingFragment.isVisible}")
         if (!settingFragment.isVisible) {
             settingFragment.show(supportFragmentManager, "setting")
-            settingActive()
+            settingDelayHide()
         } else {
             handler.removeCallbacks(hideSetting)
             settingFragment.dismiss()
@@ -285,7 +302,7 @@ class MainActivity : FragmentActivity() {
 
     private fun channelUp() {
         if (mainFragment.isHidden) {
-            if (channelReversal) {
+            if (SP.channelReversal) {
                 next()
                 return
             }
@@ -302,7 +319,7 @@ class MainActivity : FragmentActivity() {
 
     private fun channelDown() {
         if (mainFragment.isHidden) {
-            if (channelReversal) {
+            if (SP.channelReversal) {
                 prev()
                 return
             }
@@ -336,6 +353,7 @@ class MainActivity : FragmentActivity() {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        Log.i(TAG, "keyCode $keyCode, event $event")
         when (keyCode) {
             KeyEvent.KEYCODE_0 -> {
                 showChannel("0")
@@ -447,84 +465,24 @@ class MainActivity : FragmentActivity() {
             }
 
             KeyEvent.KEYCODE_DPAD_LEFT -> {
-//                if (mainFragment.isHidden) {
-//                    prevSource()
-//                } else {
-////                    if (mainFragment.tvListViewModel.getTVViewModelCurrent()
-////                            ?.getItemPosition() == 0
-////                    ) {
-//////                        mainFragment.toLastPosition()
-////                        hideMainFragment()
-////                    }
-//                }
+                if (!mainFragment.isVisible && !settingFragment.isVisible) {
+                    switchMainFragment()
+                    return true
+                }
             }
 
             KeyEvent.KEYCODE_DPAD_RIGHT -> {
-//                if (mainFragment.isHidden) {
-//                    nextSource()
-//                } else {
-////                    if (mainFragment.tvListViewModel.getTVViewModelCurrent()
-////                            ?.getItemPosition() == mainFragment.tvListViewModel.maxNum[mainFragment.selectedPosition] - 1
-////                    ) {
-////                        mainFragment.toFirstPosition()
-////                    }
-//                }
+                if (!mainFragment.isVisible && !settingFragment.isVisible) {
+                    showSetting()
+                    return true
+                }
             }
         }
 
         return super.onKeyDown(keyCode, event)
     }
 
-    private fun getPackageInfo(): PackageInfo {
-        val flag = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
-            PackageManager.GET_SIGNATURES
-        } else {
-            PackageManager.GET_SIGNING_CERTIFICATES
-        }
-
-        return if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            packageManager.getPackageInfo(packageName, flag)
-        } else {
-            packageManager.getPackageInfo(
-                packageName,
-                PackageManager.PackageInfoFlags.of(PackageManager.GET_SIGNING_CERTIFICATES.toLong())
-            )
-        }
-    }
-
-    private fun getAppSignature(): String {
-        val packageInfo = getPackageInfo()
-
-        var sign: Signature? = null
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
-            val signatures: Array<out Signature>? = packageInfo.signatures
-            if (signatures != null) {
-                sign = signatures[0]
-            }
-        } else {
-            val signingInfo: SigningInfo? = packageInfo.signingInfo
-            if (signingInfo != null) {
-                sign = signingInfo.apkContentsSigners[0]
-            }
-        }
-        if (sign == null) {
-            return ""
-        }
-
-        return hashSignature(sign)
-    }
-
-    private fun hashSignature(signature: Signature): String {
-        return try {
-            val md = MessageDigest.getInstance("MD5")
-            md.update(signature.toByteArray())
-            val digest = md.digest()
-            digest.let { it -> it.joinToString("") { "%02x".format(it) } }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error hashing signature", e)
-            ""
-        }
-    }
+    private fun getAppSignature() = this.appSignature
 
     override fun onStart() {
         Log.i(TAG, "onStart")
@@ -545,10 +503,22 @@ class MainActivity : FragmentActivity() {
         handler.removeCallbacks(hideMain)
     }
 
-    companion object {
-        private const val TAG = "MainActivity"
-        private const val CHANNEL_REVERSAL = "channel_reversal"
-        private const val CHANNEL_NUM = "channel_num"
-        const val BOOT_STARTUP = "boot_startup"
+    override fun onDestroy() {
+        super.onDestroy()
+        Request.onDestroy()
+    }
+
+    override fun onRequestFinished(message: String?) {
+        if (message != null && !errorFragment.isVisible) {
+            supportFragmentManager.beginTransaction()
+                .add(R.id.main_browse_fragment, errorFragment)
+                .commitNow()
+            errorFragment.setErrorContent(message)
+        }
+        fragmentReady("Request")
+    }
+
+    private companion object {
+        const val TAG = "MainActivity"
     }
 }

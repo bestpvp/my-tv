@@ -1,17 +1,17 @@
 package com.lizongying.mytv
 
+import android.content.Context
 import android.graphics.Color
 import android.view.ContextThemeWrapper
 import android.view.ViewGroup
 import android.widget.ImageView
 import androidx.leanback.widget.ImageCardView
 import androidx.leanback.widget.Presenter
-import androidx.lifecycle.LifecycleOwner
 import com.bumptech.glide.Glide
 import com.lizongying.mytv.models.TVViewModel
 
 class CardPresenter(
-    private val owner: LifecycleOwner,
+    private val context: Context,
 ) : Presenter() {
 
     override fun onCreateViewHolder(parent: ViewGroup): ViewHolder {
@@ -23,49 +23,43 @@ class CardPresenter(
         return ViewHolder(cardView)
     }
 
-    override fun onBindViewHolder(viewHolder: ViewHolder, item: Any) {
+    override fun onBindViewHolder(viewHolder: ViewHolder, item: Any?) {
         val tvViewModel = item as TVViewModel
         val cardView = viewHolder.view as ImageCardView
 
-        cardView.titleText = tvViewModel.title.value
+        cardView.titleText = tvViewModel.getTV().title
         cardView.setMainImageDimensions(CARD_WIDTH, CARD_HEIGHT)
         cardView.tag = tvViewModel.videoUrl.value
 
-        when (tvViewModel.title.value) {
-            "CCTV8K 超高清" -> Glide.with(viewHolder.view.context)
-                .load(R.drawable.cctv8k)
+        cardView.mainImageView?.let {
+            Glide.with(viewHolder.view.context)
+                .load(tvViewModel.getTV().logo)
                 .centerInside()
-                .into(cardView.mainImageView)
-
-            "天津卫视" -> Glide.with(viewHolder.view.context)
-                .load(R.drawable.tianjin)
-                .centerInside()
-                .into(cardView.mainImageView)
-
-            "新疆卫视" -> Glide.with(viewHolder.view.context)
-                .load(R.drawable.xinjiang)
-                .centerInside()
-                .into(cardView.mainImageView)
-
-            "兵团卫视" -> Glide.with(viewHolder.view.context)
-                .load(R.drawable.bingtuan)
-                .centerInside()
-                .into(cardView.mainImageView)
-
-            else -> Glide.with(viewHolder.view.context)
-                .load(tvViewModel.logo.value)
-                .centerInside()
-                .into(cardView.mainImageView)
+                .into(it)
         }
 
         cardView.setBackgroundColor(Color.WHITE)
         cardView.setMainImageScaleType(ImageView.ScaleType.CENTER_INSIDE)
 
-        tvViewModel.program.observe(owner) { _ ->
-            val program = tvViewModel.getProgramOne()
-            if (program != null) {
-                cardView.contentText = program.name
-            }
+//        cardView.setOnFocusChangeListener { v, hasFocus ->
+//            run {
+//                if (hasFocus) {
+//                    if (v != null) {
+//                        (v as ImageCardView).setInfoAreaBackgroundColor(context.resources.getColor(R.color.focus))
+//                    }
+//                } else {
+//                    if (v != null) {
+//                        (v as ImageCardView).setInfoAreaBackgroundColor(context.resources.getColor(R.color.ic_launcher_background))
+//                    }
+//                }
+//            }
+//        }
+
+        val epg = tvViewModel.epg.value?.filter { it.beginTime < Utils.getDateTimestamp() }
+        if (!epg.isNullOrEmpty()) {
+            cardView.contentText = epg.last().title
+        } else {
+            cardView.contentText = ""
         }
     }
 

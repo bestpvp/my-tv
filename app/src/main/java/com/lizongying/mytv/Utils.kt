@@ -26,6 +26,10 @@ object Utils {
         return (System.currentTimeMillis() - between) / 1000
     }
 
+    fun setBetween(currentTimeMillis: Long) {
+        between = System.currentTimeMillis() - currentTimeMillis
+    }
+
     suspend fun init() {
         var currentTimeMillis: Long = 0
         try {
@@ -71,6 +75,16 @@ object Utils {
         return TypedValue.applyDimension(
             TypedValue.COMPLEX_UNIT_DIP, dp.toFloat(), Resources.getSystem().displayMetrics
         ).toInt()
+    }
+
+    fun pxToDp(px: Float): Int {
+        val scale = Resources.getSystem().displayMetrics.density
+        return (px / scale).toInt()
+    }
+
+    fun pxToDp(px: Int): Int {
+        val scale = Resources.getSystem().displayMetrics.density
+        return (px / scale).toInt()
     }
 
     fun isTmallDevice() = Build.MANUFACTURER.equals("Tmall", ignoreCase = true)

@@ -1,18 +1,15 @@
 package com.lizongying.mytv.models
 
-import android.net.Uri
 import android.util.Log
-import androidx.annotation.OptIn
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
-import androidx.media3.common.MediaItem
-import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.media3.exoplayer.hls.HlsMediaSource
 import com.lizongying.mytv.TV
-import com.lizongying.mytv.Utils.getDateTimestamp
+import com.lizongying.mytv.api.FEPG
 import com.lizongying.mytv.proto.Ysp.cn.yangshipin.omstv.common.proto.programModel.Program
+import com.tencent.videolite.android.datamodel.cctvjce.TVProgram
+import java.text.SimpleDateFormat
+import java.util.TimeZone
 
 class TVViewModel(private var tv: TV) : ViewModel() {
 
@@ -20,30 +17,21 @@ class TVViewModel(private var tv: TV) : ViewModel() {
     private var itemPosition: Int = 0
 
     var retryTimes = 0
-    var tokenRetryTimes = 0
     var retryMaxTimes = 8
-    var tokenRetryMaxTimes = 2
-    var programUpdateTime: Long = 0
+    var tokenYSPRetryTimes = 0
+    var tokenYSPRetryMaxTimes = 0
+    var tokenFHRetryTimes = 0
+    var tokenFHRetryMaxTimes = 8
+
+    var needGetToken = false
 
     private val _errInfo = MutableLiveData<String>()
     val errInfo: LiveData<String>
         get() = _errInfo
 
-    private val _programId = MutableLiveData<String>()
-    val programId: LiveData<String>
-        get() = _programId
-
-    private var _program = MutableLiveData<MutableList<Program>>()
-    val program: LiveData<MutableList<Program>>
-        get() = _program
-
-    private val _id = MutableLiveData<Int>()
-    val id: LiveData<Int>
-        get() = _id
-
-    private val _title = MutableLiveData<String>()
-    val title: LiveData<String>
-        get() = _title
+    private var _epg = MutableLiveData<MutableList<EPG>>()
+    val epg: LiveData<MutableList<EPG>>
+        get() = _epg
 
     private val _videoUrl = MutableLiveData<List<String>>()
     val videoUrl: LiveData<List<String>>
@@ -53,18 +41,6 @@ class TVViewModel(private var tv: TV) : ViewModel() {
     val videoIndex: LiveData<Int>
         get() = _videoIndex
 
-    private val _logo = MutableLiveData<String>()
-    val logo: LiveData<String>
-        get() = _logo
-
-    private val _pid = MutableLiveData<String>()
-    val pid: LiveData<String>
-        get() = _pid
-
-    private val _sid = MutableLiveData<String>()
-    val sid: LiveData<String>
-        get() = _sid
-
     private val _change = MutableLiveData<Boolean>()
     val change: LiveData<Boolean>
         get() = _change
@@ -73,10 +49,7 @@ class TVViewModel(private var tv: TV) : ViewModel() {
     val ready: LiveData<Boolean>
         get() = _ready
 
-    private var mMinimumLoadableRetryCount = 5
-
     var seq = 0
-
 
     fun addVideoUrl(url: String) {
         if (_videoUrl.value?.isNotEmpty() == true) {
@@ -88,9 +61,8 @@ class TVViewModel(private var tv: TV) : ViewModel() {
         } else {
             tv.videoUrl = tv.videoUrl + listOf(url)
         }
-        tv.videoIndex = tv.videoUrl.lastIndex
         _videoUrl.value = tv.videoUrl
-        _videoIndex.value = tv.videoIndex
+        _videoIndex.value = tv.videoUrl.lastIndex
     }
 
     fun firstSource() {
@@ -114,22 +86,10 @@ class TVViewModel(private var tv: TV) : ViewModel() {
         _videoIndex.value = videoIndex
     }
 
-    fun setLogo(url: String) {
-        _logo.value = url
-    }
-
     init {
-        _id.value = tv.id
-        _title.value = tv.title
         _videoUrl.value = tv.videoUrl
-        _videoIndex.value = tv.videoIndex
-        _logo.value = tv.logo
-        _programId.value = tv.programId
-        _pid.value = tv.pid
-        _sid.value = tv.sid
-        _program.value = mutableListOf()
+        _videoIndex.value = tv.videoUrl.lastIndex
     }
-
 
     fun getRowPosition(): Int {
         return rowPosition
@@ -151,69 +111,30 @@ class TVViewModel(private var tv: TV) : ViewModel() {
         _errInfo.value = info
     }
 
-    fun update(t: TV) {
-        tv = t
-    }
-
     fun getTV(): TV {
         return tv
     }
 
-    fun getProgramOne(): Program? {
-        val programNew =
-            (_program.value?.filter { it.et > getDateTimestamp() })?.toMutableList()
-        if (programNew != null && _program.value != programNew) {
-            _program.value = programNew
-        }
-        if (_program.value!!.isEmpty()) {
-            return null
-        }
-        return _program.value?.first()
+    fun addYJceEPG(p: MutableList<TVProgram>) {
+        _epg.value = p.map { EPG(it.name, it.start_time_stamp.toInt()) }.toMutableList()
     }
 
-    fun addProgram(p: MutableList<Program>) {
-        val timestamp = getDateTimestamp()
+    fun addYEPG(p: MutableList<Program>) {
+        _epg.value = p.map { EPG(it.name, it.st.toInt()) }.toMutableList()
+    }
 
-        // after now & not empty & different
-        val p1 = (p.filter { it.et > timestamp }).toMutableList()
-        if (p1.isEmpty() || _program.value == p1) {
-            return
+    private fun formatFTime(s: String): Int {
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss")
+        dateFormat.timeZone = TimeZone.getTimeZone("UTC")
+        val date = dateFormat.parse(s.substring(0, 19))
+        if (date != null) {
+            return (date.time / 1000).toInt()
         }
-
-        if (_program.value!!.isEmpty()) {
-            _program.value = p1
-        } else {
-            _program.value =
-                ((_program.value?.filter { it.et > timestamp && it.st < p1.first().st })?.plus(
-                    p1
-                ))?.toMutableList()
-        }
+        return 0
     }
 
-
-    private var mHeaders: Map<String, String>? = mapOf()
-
-    fun setHeaders(headers: Map<String, String>) {
-        mHeaders = headers
-    }
-
-    fun setMinimumLoadableRetryCount(minimumLoadableRetryCount: Int) {
-        mMinimumLoadableRetryCount = minimumLoadableRetryCount
-    }
-
-    /**
-     * (playerView?.player as ExoPlayer).setMediaSource(tvViewModel.buildSource())
-     */
-    @OptIn(UnstableApi::class)
-    fun buildSource(): HlsMediaSource {
-        val httpDataSource = DefaultHttpDataSource.Factory()
-        mHeaders?.let { httpDataSource.setDefaultRequestProperties(it) }
-
-        return HlsMediaSource.Factory(httpDataSource).createMediaSource(
-            MediaItem.fromUri(
-                Uri.parse(getVideoUrlCurrent())
-            )
-        )
+    fun addFEPG(p: List<FEPG>) {
+        _epg.value = p.map { EPG(it.title, formatFTime(it.event_time)) }.toMutableList()
     }
 
     fun getVideoUrlCurrent(): String {
